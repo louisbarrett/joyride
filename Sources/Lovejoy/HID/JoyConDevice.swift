@@ -34,7 +34,7 @@ final class JoyConDevice {
     /// its shared diagnostics log (which is already surfaced in the UI).
     var onRawReport: ((UInt8, [UInt8]) -> Void)?
 
-    init(device: IOHIDDevice) {
+    init(device: IOHIDDevice, initialCalibration: DeviceCalibration = .default) {
         self.device = device
         self.identifier = UUID()
 
@@ -46,9 +46,25 @@ final class JoyConDevice {
         self.vendorID = vendorID
         self.serialNumber = serial
         self.side = JoyConSide(productID: productID)
-        self.parser = HIDReportParser(side: JoyConSide(productID: productID))
+        self.parser = HIDReportParser(
+            side: JoyConSide(productID: productID),
+            leftStickCalibration: initialCalibration.leftStick,
+            rightStickCalibration: initialCalibration.rightStick
+        )
         self.inputReportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: inputReportBufferSize)
         self.inputReportBuffer.initialize(repeating: 0, count: inputReportBufferSize)
+    }
+
+    /// Replace the parser's calibration at runtime. Must be called on the main thread
+    /// since the parser is read from there by the HID input callback.
+    func applyCalibration(_ calibration: DeviceCalibration) {
+        parser.leftStickCalibration = calibration.leftStick
+        parser.rightStickCalibration = calibration.rightStick
+    }
+
+    /// Snapshot of the current calibration, for UI display.
+    var currentCalibration: DeviceCalibration {
+        DeviceCalibration(leftStick: parser.leftStickCalibration, rightStick: parser.rightStickCalibration)
     }
 
     deinit {

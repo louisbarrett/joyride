@@ -8,8 +8,11 @@ import Foundation
 /// flipped to full mode.
 struct HIDReportParser {
     let side: JoyConSide
-    let leftStickCalibration: StickCalibration
-    let rightStickCalibration: StickCalibration
+    /// Calibration applied to the left stick's raw readings. `var` so the parser can
+    /// be re-calibrated at runtime when the user clicks "Calibrate center" — the
+    /// `JoyConDevice` owns this struct and mutates these fields directly.
+    var leftStickCalibration: StickCalibration
+    var rightStickCalibration: StickCalibration
 
     init(side: JoyConSide,
          leftStickCalibration: StickCalibration = .defaultLeft,
@@ -130,11 +133,13 @@ struct HIDReportParser {
         if readLeft {
             let lx = UInt16(data[5]) | (UInt16(data[6] & 0x0F) << 8)
             let ly = (UInt16(data[6]) >> 4) | (UInt16(data[7]) << 4)
+            state.rawLeftStick = SIMD2<UInt16>(lx, ly)
             state.leftStick = leftStickCalibration.normalize(x: lx, y: ly)
         }
         if readRight {
             let rx = UInt16(data[8]) | (UInt16(data[9] & 0x0F) << 8)
             let ry = (UInt16(data[9]) >> 4) | (UInt16(data[10]) << 4)
+            state.rawRightStick = SIMD2<UInt16>(rx, ry)
             state.rightStick = rightStickCalibration.normalize(x: rx, y: ry)
         }
 
@@ -202,29 +207,3 @@ struct HIDReportParser {
     }
 }
 
-/// Analog stick calibration. Real Joy-Cons ship per-unit calibration in SPI flash,
-/// but for scroll/cursor use the factory defaults are adequate. Advanced users can
-/// tune these via Settings; for now we bake in reasonable defaults.
-struct StickCalibration {
-    let centerX: Int
-    let centerY: Int
-    let rangeX: Int
-    let rangeY: Int
-
-    static let defaultLeft = StickCalibration(centerX: 2100, centerY: 2100, rangeX: 1500, rangeY: 1500)
-    static let defaultRight = StickCalibration(centerX: 2100, centerY: 2100, rangeX: 1500, rangeY: 1500)
-
-    /// Convert a raw 12-bit stick reading into a normalized [-1, 1] pair.
-    /// The Y axis is inverted so that positive = up (matches screen coordinates where
-    /// we invert again when moving the cursor).
-    func normalize(x: UInt16, y: UInt16) -> SIMD2<Double> {
-        let nx = clampUnit(Double(Int(x) - centerX) / Double(rangeX))
-        let ny = clampUnit(Double(Int(y) - centerY) / Double(rangeY))
-        return SIMD2<Double>(nx, ny)
-    }
-
-    private func clampUnit(_ v: Double) -> Double {
-        if v.isNaN { return 0 }
-        return max(-1.0, min(1.0, v))
-    }
-}

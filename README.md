@@ -14,6 +14,7 @@ keyboard, mouse, and **mouse scroll** events — the feature JoyMapper doesn't h
 
 ## Building
 
+
 Requires macOS 13+ and Swift 5.9+ (ships with Xcode 15 / Command Line Tools).
 
 ```bash
@@ -52,6 +53,43 @@ not persist between runs. Use the build script for real testing.
   R/ZR are left/right click. Sticks drive the mouse cursor.
 - **Gaming** — WASD on the D-pad, R/ZR left/right click, A=Space, B=Return, X=E, Y=Q.
 - **Presentation** — A/B page right/left, X/Y page up/down. +/Home = space/esc.
+
+## Key bindings
+
+Each button can trigger a key combo, a mouse click, or a scroll action. For key
+combos, all five macOS modifiers are available — `⌃ Control`, `⌥ Option`,
+`⇧ Shift`, `⌘ Command`, and `fn` (the Globe key). The `fn` modifier is handy
+for system combos like `fn+F` (Full Screen), `fn+E` (Emoji & Symbols), or
+`fn+A` (Accessibility Shortcuts).
+
+## Stick calibration
+
+Joy-Con sticks drift over time — the reported "center" creeps off 0 (cursor
+crawls at rest) and the reported "range" shrinks (cursor never hits full speed).
+Lovejoy fixes both with a short guided calibration. Open *Mapping Editor → Live
+Input Preview* for each connected controller and click **Calibrate…**:
+
+1. **Step 1 — Rest.** Leave both sticks alone for about 0.8 s while Lovejoy
+   averages their raw readings to establish a provisional center.
+2. **Step 2 — Roll.** Rotate each stick in full circles for up to 5 s. An 8-dot
+   coverage ring lights up as you sweep through each 45° arc; when all eight
+   dots are green, calibration auto-completes. Lovejoy records the min/max raw
+   reading on each axis during the roll and uses the midpoint of those bounds
+   as the true center and the half-span as the new range — so the normalized
+   stick output hits exactly ±1.0 at your particular controller's mechanical
+   limits, without over-saturating from a wobble or under-using the travel.
+
+If you only cover part of the rotation, Lovejoy falls back to the rest-phase
+center (better than factory, but keeps the existing range). The panel shows
+live `raw` values and a `Δ` drift indicator that turns orange when the stick is
+measurably off-center, so you can see at a glance whether recalibration would
+help.
+
+Calibration is stored per-device (keyed by serial number) in
+`~/Library/Application Support/Lovejoy/calibration.json`, with a per-side
+fallback so a freshly-paired same-side Joy-Con inherits the last known
+calibration until you recalibrate it. Click the ↺ button next to **Calibrate…**
+to revert to factory defaults.
 
 ## Project layout
 

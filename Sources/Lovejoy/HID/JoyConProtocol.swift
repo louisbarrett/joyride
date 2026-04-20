@@ -136,6 +136,13 @@ struct JoyConInputState: Equatable {
     var leftStick: SIMD2<Double> = .zero
     /// Normalized right stick.
     var rightStick: SIMD2<Double> = .zero
+    /// Raw 12-bit left-stick reading straight from the standard full input report,
+    /// before any calibration / normalization. Used by the calibration UI to snapshot
+    /// the physical rest position when the user clicks "Calibrate center". `nil` means
+    /// the most recent report didn't include stick data for this side (e.g. simple HID).
+    var rawLeftStick: SIMD2<UInt16>? = nil
+    /// Raw 12-bit right-stick reading (see `rawLeftStick`).
+    var rawRightStick: SIMD2<UInt16>? = nil
     /// Battery percentage, 0-4 (raw 4-bit).
     var batteryLevel: UInt8 = 0
     /// Timestamp (monotonic) when this state was parsed.

@@ -87,9 +87,19 @@ final class JoyConManager: ObservableObject {
     /// fields on this object are coalesced to ~30 Hz.
     let liveInput = JoyConLiveInput()
 
+    /// Persistent per-device stick calibration. Owned here so device-match callbacks
+    /// can synchronously look up the right calibration to hand to a fresh `JoyConDevice`.
+    /// Exposed so UI views can observe calibration changes (e.g. to show "calibrated"
+    /// state per device).
+    let calibrationStore: CalibrationStore
+
     /// Invoked for every button press/release delta and every stick update, so the
     /// `MappingEngine` can react. Fires on the main queue.
     var onInputEvent: ((UUID, JoyConInputStateDelta) -> Void)?
+
+    /// Fired on the main queue whenever we successfully recalibrate a device's stick
+    /// center. The UI listens so it can show a transient "Calibrated" confirmation.
+    var onCalibrationChanged: ((UUID) -> Void)?
 
     /// Always-fresh (non-coalesced) per-device state. Read by the cursor-move timer so
     /// mouse motion remains smooth at the timer's rate rather than stepping to the
@@ -101,7 +111,9 @@ final class JoyConManager: ObservableObject {
     private var totalReportCounts: [UUID: Int] = [:]
     private let diagnosticsLimit: Int = 50
 
-    init() {}
+    init(calibrationStore: CalibrationStore = CalibrationStore()) {
+        self.calibrationStore = calibrationStore
+    }
 
     deinit {
         stop()
@@ -247,7 +259,9 @@ final class JoyConManager: ObservableObject {
 
         log("Device matched: \(product) (PID 0x\(String(productID, radix: 16))) serial=\(serial ?? "n/a")")
 
-        let device = JoyConDevice(device: hidDevice)
+        let side = JoyConSide(productID: productID)
+        let calibration = calibrationStore.calibration(serial: serial, side: side)
+        let device = JoyConDevice(device: hidDevice, initialCalibration: calibration)
         device.onStateUpdate = { [weak self, weak device] state in
             guard let self = self, let device = device else { return }
             self.handleStateUpdate(deviceID: device.identifier, state: state)
@@ -318,6 +332,61 @@ final class JoyConManager: ObservableObject {
         if delta.hasAnyChange {
             onInputEvent?(deviceID, delta)
         }
+    }
+
+    // MARK: - Calibration
+
+    /// Sample the current raw stick readings on the given device and persist them as
+    /// the new "center" for both sticks. The caller is expected to prompt the user to
+    /// hold both sticks at rest before invoking this.
+    ///
+    /// Returns `true` if calibration was captured, `false` if we have no raw data yet
+    /// (device only just connected, or it's in simple-HID mode where we don't emit
+    /// raw 12-bit readings). On success, `onCalibrationChanged(deviceID)` fires.
+    @discardableResult
+    func calibrateCenter(deviceID: UUID) -> Bool {
+        guard let device = devices.first(where: { $0.identifier == deviceID }),
+              let state = currentStates[deviceID] else {
+            return false
+        }
+
+        var calibration = device.currentCalibration
+
+        // Only rewrite the side that actually produced a raw reading this tick. This
+        // keeps a Left Joy-Con's unused right-stick calibration alone (and vice versa).
+        var updated = false
+        if let raw = state.rawLeftStick {
+            calibration.leftStick.centerX = Int(raw.x)
+            calibration.leftStick.centerY = Int(raw.y)
+            updated = true
+        }
+        if let raw = state.rawRightStick {
+            calibration.rightStick.centerX = Int(raw.x)
+            calibration.rightStick.centerY = Int(raw.y)
+            updated = true
+        }
+        guard updated else { return false }
+
+        device.applyCalibration(calibration)
+        calibrationStore.save(calibration, serial: device.serialNumber, side: device.side)
+
+        let lx = state.rawLeftStick.map { "(\($0.x),\($0.y))" } ?? "—"
+        let rx = state.rawRightStick.map { "(\($0.x),\($0.y))" } ?? "—"
+        log("Calibrated \(device.side.displayName): left center=\(lx) right center=\(rx)")
+
+        onCalibrationChanged?(deviceID)
+        return true
+    }
+
+    /// Discard any user-captured calibration for this device and revert to the
+    /// factory defaults. Calibration for other devices (same serial or same side
+    /// elsewhere) is unaffected.
+    func resetCalibration(deviceID: UUID) {
+        guard let device = devices.first(where: { $0.identifier == deviceID }) else { return }
+        calibrationStore.reset(serial: device.serialNumber, side: device.side)
+        device.applyCalibration(.default)
+        log("Reset calibration for \(device.side.displayName).")
+        onCalibrationChanged?(deviceID)
     }
 }
 
