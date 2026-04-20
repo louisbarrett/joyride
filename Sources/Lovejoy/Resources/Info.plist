@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Lovejoy</string>
+	<key>CFBundleExecutable</key>
+	<string>Lovejoy</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.lovejoy.app</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Lovejoy</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Lovejoy is open source under the MIT license.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Lovejoy uses Bluetooth to communicate with Nintendo Switch Joy-Con controllers.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Lovejoy uses Bluetooth to communicate with Nintendo Switch Joy-Con controllers.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Lovejoy synthesizes keyboard, mouse, and scroll events to control other applications.</string>
+	<key>NSInputMonitoringUsageDescription</key>
+	<string>Lovejoy reads button and stick input from paired Joy-Con controllers.</string>
+</dict>
+</plist>

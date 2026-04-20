@@ -1,0 +1,20 @@
+## SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+*.xcodeproj/
+*.xcworkspace/
+
+## Build output
+build/
+
+## macOS
+.DS_Store
+
+## Xcode user state
+*.xcuserstate
+xcuserdata/
+
+## IDE
+.vscode/
+.idea/
