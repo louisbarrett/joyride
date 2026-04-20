@@ -49,7 +49,7 @@ struct DeviceCalibration: Codable, Equatable, Hashable {
 }
 
 /// Persists user-captured stick calibration to
-/// `~/Library/Application Support/Lovejoy/calibration.json`.
+/// `~/Library/Application Support/Joyride/calibration.json`.
 ///
 /// Two lookup layers:
 ///   1. Per serial number — stable across relaunches for the same physical
@@ -72,7 +72,7 @@ final class CalibrationStore: ObservableObject {
     @Published private(set) var perSide: [JoyConSide: DeviceCalibration] = [:]
 
     private let fileURL: URL
-    private let io = DispatchQueue(label: "com.lovejoy.calibrationstore", qos: .utility)
+    private let io = DispatchQueue(label: "com.joyride.calibrationstore", qos: .utility)
 
     private let persistDelay: TimeInterval = 0.3
     private var pendingPersist: DispatchWorkItem?
@@ -167,7 +167,7 @@ final class CalibrationStore: ObservableObject {
                 let data = try encoder.encode(snapshot)
                 try data.write(to: url, options: .atomic)
             } catch {
-                NSLog("Lovejoy: failed to persist calibration: %@", error.localizedDescription)
+                NSLog("Joyride: failed to persist calibration: %@", error.localizedDescription)
             }
         }
     }

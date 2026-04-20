@@ -212,7 +212,7 @@ final class JoyConManager: ObservableObject {
     // MARK: - Diagnostics
 
     private func log(_ message: String) {
-        NSLog("Lovejoy: %@", message)
+        NSLog("Joyride: %@", message)
         let stamped = "\(Self.timestamp()) — \(message)"
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }

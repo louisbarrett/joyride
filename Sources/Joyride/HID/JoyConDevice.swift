@@ -82,7 +82,7 @@ final class JoyConDevice {
         // on recent macOS versions it sometimes doesn't — so we belt-and-braces open here.
         let openResult = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
         if openResult != kIOReturnSuccess {
-            NSLog("Lovejoy: IOHIDDeviceOpen(%@) failed: 0x%x", side.displayName, openResult)
+            NSLog("Joyride: IOHIDDeviceOpen(%@) failed: 0x%x", side.displayName, openResult)
         }
 
         IOHIDDeviceRegisterInputReportCallback(
@@ -125,7 +125,7 @@ final class JoyConDevice {
         let ledOK = sendSubcommand(.setPlayerLights, arguments: [0x01])
 
         if !vibOK || !modeOK || !ledOK {
-            NSLog("Lovejoy: handshake partial (%@): vibration=%@, mode=%@, led=%@",
+            NSLog("Joyride: handshake partial (%@): vibration=%@, mode=%@, led=%@",
                   side.displayName,
                   vibOK ? "ok" : "FAIL",
                   modeOK ? "ok" : "FAIL",

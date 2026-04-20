@@ -55,7 +55,7 @@ struct MenuBarContentView: View {
 
             HStack(spacing: 4) {
                 Spacer()
-                Text("Lovejoy \(AppBundle.versionString) · built \(AppBundle.buildStamp)")
+                Text("Joyride \(AppBundle.versionString) · built \(AppBundle.buildStamp)")
                     .font(.system(size: 9, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .textSelection(.enabled)
@@ -72,7 +72,7 @@ struct MenuBarContentView: View {
                 .font(.title2)
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Lovejoy").font(.headline)
+                Text("Joyride").font(.headline)
                 Text("Joy-Con Input Mapper").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -137,16 +137,16 @@ struct MenuBarContentView: View {
                             Label("Reveal App", systemImage: "folder")
                         }
                         .controlSize(.small)
-                        .help("Reveal Lovejoy.app in Finder so you can drag it into the privacy list")
+                        .help("Reveal Joyride.app in Finder so you can drag it into the privacy list")
                         Button {
                             AppBundle.copyPathToClipboard()
                         } label: {
                             Label("Copy Path", systemImage: "doc.on.clipboard")
                         }
                         .controlSize(.small)
-                        .help("Copy the Lovejoy.app path. In the + dialog in System Settings press ⇧⌘G and paste.")
+                        .help("Copy the Joyride.app path. In the + dialog in System Settings press ⇧⌘G and paste.")
                     }
-                    Text("If Lovejoy isn't shown in the list, click the + button there, press ⇧⌘G, paste the path, and enable it.")
+                    Text("If Joyride isn't shown in the list, click the + button there, press ⇧⌘G, paste the path, and enable it.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)

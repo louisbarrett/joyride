@@ -68,10 +68,10 @@ enum AppBundle {
     }
 
     /// Compile-time timestamp: this string is stamped in at build time by the build script
-    /// via the `LOVEJOY_BUILD_STAMP` environment variable. Falls back to the bundle mtime
+    /// via the `JOYRIDE_BUILD_STAMP` environment variable. Falls back to the bundle mtime
     /// so even `swift run` gives us a useful value.
     static var buildStamp: String {
-        if let env = ProcessInfo.processInfo.environment["LOVEJOY_BUILD_STAMP"], !env.isEmpty {
+        if let env = ProcessInfo.processInfo.environment["JOYRIDE_BUILD_STAMP"], !env.isEmpty {
             return env
         }
         let path = Bundle.main.executableURL?.path ?? bundlePath

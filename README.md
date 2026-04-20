@@ -1,4 +1,4 @@
-# Lovejoy
+# Joyride
 
 A native macOS menu bar utility that maps Nintendo Switch **Joy-Con** inputs to system-wide
 keyboard, mouse, and **mouse scroll** events — the feature JoyMapper doesn't have.
@@ -19,7 +19,7 @@ Requires macOS 13+ and Swift 5.9+ (ships with Xcode 15 / Command Line Tools).
 
 ```bash
 ./scripts/build-app.sh
-open build/Lovejoy.app
+open build/Joyride.app
 ```
 
 For a universal binary:
@@ -43,7 +43,7 @@ not persist between runs. Use the build script for real testing.
    LEDs blink, then add it from *System Settings → Bluetooth*. It will appear as
    "Joy-Con (L)" or "Joy-Con (R)".
 2. **Grant Accessibility.** On first launch macOS will prompt. Go to *System Settings →
-   Privacy & Security → Accessibility* and enable `Lovejoy`.
+   Privacy & Security → Accessibility* and enable `Joyride`.
 3. **Open the menu bar icon** (gamecontroller symbol) to see connected devices and pick
    a profile. Click *Open Mapping Editor…* to customize bindings.
 
@@ -66,27 +66,27 @@ for system combos like `fn+F` (Full Screen), `fn+E` (Emoji & Symbols), or
 
 Joy-Con sticks drift over time — the reported "center" creeps off 0 (cursor
 crawls at rest) and the reported "range" shrinks (cursor never hits full speed).
-Lovejoy fixes both with a short guided calibration. Open *Mapping Editor → Live
+Joyride fixes both with a short guided calibration. Open *Mapping Editor → Live
 Input Preview* for each connected controller and click **Calibrate…**:
 
-1. **Step 1 — Rest.** Leave both sticks alone for about 0.8 s while Lovejoy
+1. **Step 1 — Rest.** Leave both sticks alone for about 0.8 s while Joyride
    averages their raw readings to establish a provisional center.
 2. **Step 2 — Roll.** Rotate each stick in full circles for up to 5 s. An 8-dot
    coverage ring lights up as you sweep through each 45° arc; when all eight
-   dots are green, calibration auto-completes. Lovejoy records the min/max raw
+   dots are green, calibration auto-completes. Joyride records the min/max raw
    reading on each axis during the roll and uses the midpoint of those bounds
    as the true center and the half-span as the new range — so the normalized
    stick output hits exactly ±1.0 at your particular controller's mechanical
    limits, without over-saturating from a wobble or under-using the travel.
 
-If you only cover part of the rotation, Lovejoy falls back to the rest-phase
+If you only cover part of the rotation, Joyride falls back to the rest-phase
 center (better than factory, but keeps the existing range). The panel shows
 live `raw` values and a `Δ` drift indicator that turns orange when the stick is
 measurably off-center, so you can see at a glance whether recalibration would
 help.
 
 Calibration is stored per-device (keyed by serial number) in
-`~/Library/Application Support/Lovejoy/calibration.json`, with a per-side
+`~/Library/Application Support/Joyride/calibration.json`, with a per-side
 fallback so a freshly-paired same-side Joy-Con inherits the last known
 calibration until you recalibrate it. Click the ↺ button next to **Calibrate…**
 to revert to factory defaults.
@@ -94,7 +94,7 @@ to revert to factory defaults.
 ## Project layout
 
 ```
-Sources/Lovejoy/
+Sources/Joyride/
 ├── App/                # App entry, AppDelegate, activation policy
 ├── HID/                # IOHIDManager wrapper, Joy-Con protocol, report parser
 ├── Mapping/            # Profile model, profile store (JSON), mapping engine
@@ -104,7 +104,7 @@ Sources/Lovejoy/
     └── Info.plist      # LSUIElement=true, Bluetooth usage strings
 ```
 
-Profiles persist to `~/Library/Application Support/Lovejoy/profiles.json`.
+Profiles persist to `~/Library/Application Support/Joyride/profiles.json`.
 
 ## How the scroll feature works
 

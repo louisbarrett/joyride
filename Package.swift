@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "Lovejoy",
+    name: "Joyride",
     platforms: [
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "Lovejoy", targets: ["Lovejoy"])
+        .executable(name: "Joyride", targets: ["Joyride"])
     ],
     targets: [
         .executableTarget(
-            name: "Lovejoy",
-            path: "Sources/Lovejoy",
+            name: "Joyride",
+            path: "Sources/Joyride",
             exclude: ["Resources/Info.plist"],
             linkerSettings: [
                 .linkedFramework("AppKit"),

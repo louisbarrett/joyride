@@ -29,7 +29,7 @@ struct MappingEditorView: View {
                 )
             }
         }
-        .navigationTitle("Lovejoy — Mapping Editor")
+        .navigationTitle("Joyride — Mapping Editor")
         .frame(minWidth: 980, minHeight: 620)
         .onAppear {
             if selectedProfileID == nil {
@@ -790,7 +790,7 @@ private struct CalibrationControls: View {
                         Label("Calibrate…", systemImage: "scope")
                     }
                     .controlSize(.small)
-                    .help("Two-step calibration: hold both sticks at rest, then roll them in full circles while Lovejoy captures the true center and range.")
+                    .help("Two-step calibration: hold both sticks at rest, then roll them in full circles while Joyride captures the true center and range.")
 
                     Button(action: resetCalibration) {
                         Image(systemName: "arrow.uturn.backward")

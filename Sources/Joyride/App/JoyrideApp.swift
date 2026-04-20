@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 @main
-struct LovejoyApp: App {
+struct JoyrideApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appState = AppState()
     @Environment(\.openWindow) private var openWindow
@@ -34,7 +34,7 @@ struct LovejoyApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window("Lovejoy — Mapping Editor", id: "mapping-editor") {
+        Window("Joyride — Mapping Editor", id: "mapping-editor") {
             MappingEditorView(
                 profileStore: appState.profileStore,
                 joyConManager: appState.joyConManager
@@ -45,7 +45,7 @@ struct LovejoyApp: App {
         .defaultSize(width: 1100, height: 720)
         .commands {
             CommandGroup(replacing: .appInfo) {
-                Button("About Lovejoy") {
+                Button("About Joyride") {
                     NSApp.orderFrontStandardAboutPanel(nil)
                 }
             }

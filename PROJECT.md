@@ -1,4 +1,4 @@
-# Lovejoy — Joy-Con Input Mapper
+# Joyride — Joy-Con Input Mapper
 
 ## Overview
 
@@ -54,7 +54,7 @@ To synthesize keyboard and mouse events:
 ### App Architecture
 - Swift + SwiftUI (macOS native, menu bar app)
 - Separate HID polling thread → event queue → main thread for UI
-- Mapping config stored as JSON in `~/Library/Application Support/Lovejoy/`
+- Mapping config stored as JSON in `~/Library/Application Support/Joyride/`
 
 ### Scroll Implementation (Key Differentiator)
 ```swift
@@ -96,12 +96,12 @@ Button hold → repeat scroll events on a timer for continuous scrolling.
 ## Project Structure (Proposed)
 
 ```
-lovejoy/
+joyride/
 ├── PROJECT.md
-├── Lovejoy.xcodeproj/
-├── Lovejoy/
+├── Joyride.xcodeproj/
+├── Joyride/
 │   ├── App/
-│   │   ├── LovejoyApp.swift        # App entry, menu bar setup
+│   │   ├── JoyrideApp.swift        # App entry, menu bar setup
 │   │   └── AppDelegate.swift
 │   ├── HID/
 │   │   ├── JoyConManager.swift     # Bluetooth discovery & connection
@@ -119,7 +119,7 @@ lovejoy/
 │       ├── MenuBarController.swift
 │       ├── MappingEditorView.swift
 │       └── DeviceStatusView.swift
-└── LovejoyTests/
+└── JoyrideTests/
 ```
 
 ## Open Questions

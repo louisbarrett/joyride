@@ -15,7 +15,7 @@ enum ScrollDirection: String, Codable, CaseIterable, Hashable {
     }
 }
 
-/// Synthesizes mouse scroll wheel events — the headline feature Lovejoy adds over JoyMapper.
+/// Synthesizes mouse scroll wheel events — the headline feature Joyride adds over JoyMapper.
 ///
 /// We use `CGEvent(scrollWheelEvent2Source:...)` with `.pixel` units for smooth, per-pixel scroll
 /// that matches trackpad behavior (momentum-free, but pixel-precise). For discrete line-based scroll

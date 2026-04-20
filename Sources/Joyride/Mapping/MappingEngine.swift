@@ -29,7 +29,7 @@ final class MappingEngine: ObservableObject {
     /// when SwiftUI is busy laying out the Mapping Editor. Before this change, a busy
     /// main thread would coalesce the scroll repeats and the user would see long pauses
     /// or missing scroll events ("input not being sent").
-    private let outputQueue = DispatchQueue(label: "com.lovejoy.engine.output", qos: .userInitiated)
+    private let outputQueue = DispatchQueue(label: "com.joyride.engine.output", qos: .userInitiated)
 
     private var isEnabled: Bool = true
 

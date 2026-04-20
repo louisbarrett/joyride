@@ -2,7 +2,7 @@ import Foundation
 import Combine
 
 /// Persists and publishes the set of mapping profiles. Profiles are stored as JSON in
-/// `~/Library/Application Support/Lovejoy/profiles.json`.
+/// `~/Library/Application Support/Joyride/profiles.json`.
 ///
 /// Writes are debounced: typing in a name field or dragging a slider rebinds the profile
 /// many times per second, and encoding + atomic-writing JSON on every keystroke was a
@@ -18,7 +18,7 @@ final class ProfileStore: ObservableObject {
     @Published private(set) var activeProfileID: UUID
 
     private let fileURL: URL
-    private let io = DispatchQueue(label: "com.lovejoy.profilestore", qos: .utility)
+    private let io = DispatchQueue(label: "com.joyride.profilestore", qos: .utility)
 
     /// Coalescing window — rapid edits within this interval share a single disk write.
     private let persistDelay: TimeInterval = 0.3
@@ -141,7 +141,7 @@ final class ProfileStore: ObservableObject {
                 let data = try encoder.encode(snapshot)
                 try data.write(to: url, options: .atomic)
             } catch {
-                NSLog("Lovejoy: failed to persist profiles: %@", error.localizedDescription)
+                NSLog("Joyride: failed to persist profiles: %@", error.localizedDescription)
             }
         }
     }
@@ -150,6 +150,6 @@ final class ProfileStore: ObservableObject {
         let fm = FileManager.default
         let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        return base.appendingPathComponent("Lovejoy", isDirectory: true)
+        return base.appendingPathComponent("Joyride", isDirectory: true)
     }
 }

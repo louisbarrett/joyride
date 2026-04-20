@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Create a stable self-signed code-signing identity in the user's login keychain so
-# successive Lovejoy builds have a consistent designated requirement — which makes
+# successive Joyride builds have a consistent designated requirement — which makes
 # TCC (Accessibility / Input Monitoring) reliably register the app in System Settings.
 #
 # You only need to run this once. Afterwards:
-#   SIGN_IDENTITY="Lovejoy Self-Signed" ./scripts/build-app.sh
+#   SIGN_IDENTITY="Joyride Self-Signed" ./scripts/build-app.sh
 # (or just ./scripts/build-app.sh — the build script will auto-detect it.)
 
 set -euo pipefail
 
-IDENTITY_NAME="Lovejoy Self-Signed"
+IDENTITY_NAME="Joyride Self-Signed"
 KEYCHAIN="${KEYCHAIN:-$HOME/Library/Keychains/login.keychain-db}"
 
 if security find-identity -v -p codesigning "$KEYCHAIN" 2>/dev/null | grep -q "$IDENTITY_NAME"; then
@@ -43,9 +43,9 @@ openssl req -x509 -newkey rsa:2048 -keyout "$TMP_DIR/key.pem" -out "$TMP_DIR/cer
     -days 3650 -nodes -config "$CONF" >/dev/null 2>&1
 
 openssl pkcs12 -export -inkey "$TMP_DIR/key.pem" -in "$TMP_DIR/cert.pem" \
-    -out "$TMP_DIR/ident.p12" -password pass:lovejoy >/dev/null
+    -out "$TMP_DIR/ident.p12" -password pass:joyride >/dev/null
 
-security import "$TMP_DIR/ident.p12" -k "$KEYCHAIN" -P lovejoy -T /usr/bin/codesign >/dev/null
+security import "$TMP_DIR/ident.p12" -k "$KEYCHAIN" -P joyride -T /usr/bin/codesign >/dev/null
 
 # Mark the cert as trusted for code signing. This is what makes TCC treat the signature
 # as stable across rebuilds.
@@ -59,5 +59,5 @@ echo "Now rebuild:"
 echo "  ./scripts/build-app.sh"
 echo
 echo "And reset any stale TCC entries once, so macOS re-prompts using the new signature:"
-echo "  tccutil reset ListenEvent  com.lovejoy.app"
-echo "  tccutil reset Accessibility com.lovejoy.app"
+echo "  tccutil reset ListenEvent  com.joyride.app"
+echo "  tccutil reset Accessibility com.joyride.app"
