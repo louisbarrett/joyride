@@ -144,11 +144,13 @@ struct MappingEditorView: View {
 
 // MARK: - Profile detail
 
-/// Groups of buttons for sectioned display.
+/// Groups of buttons for sectioned display. Each group is tied to a physical
+/// Joy-Con "side" so we can hide sections whose hardware isn't connected.
 private enum ButtonGroup: String, CaseIterable {
     case rightJoyCon = "Right Joy-Con"
     case leftJoyCon = "Left Joy-Con"
-    case sideRails = "Side Rails (SL / SR)"
+    case rightSideRails = "Right Joy-Con — Side Rails (SL / SR)"
+    case leftSideRails = "Left Joy-Con — Side Rails (SL / SR)"
 
     var buttons: [JoyConButton] {
         switch self {
@@ -156,8 +158,20 @@ private enum ButtonGroup: String, CaseIterable {
             return [.a, .b, .x, .y, .r, .zr, .plus, .rightStickClick, .home]
         case .leftJoyCon:
             return [.dpadUp, .dpadDown, .dpadLeft, .dpadRight, .l, .zl, .minus, .leftStickClick, .capture]
-        case .sideRails:
-            return [.slLeft, .srLeft, .slRight, .srRight]
+        case .rightSideRails:
+            return [.slRight, .srRight]
+        case .leftSideRails:
+            return [.slLeft, .srLeft]
+        }
+    }
+
+    /// Which physical Joy-Con sides populate this group. A group is shown if any
+    /// of the connected devices matches one of these sides (or if nothing is
+    /// connected at all, or the user has flipped "Show all").
+    var sides: Set<JoyConSide> {
+        switch self {
+        case .rightJoyCon, .rightSideRails: return [.right, .proController]
+        case .leftJoyCon, .leftSideRails:   return [.left, .proController]
         }
     }
 }
@@ -165,6 +179,33 @@ private enum ButtonGroup: String, CaseIterable {
 private struct ProfileDetailView: View {
     @Binding var profile: MappingProfile
     @ObservedObject var joyConManager: JoyConManager
+
+    /// When true, we force-show every section regardless of what's paired. Lets
+    /// users edit bindings for a Joy-Con that isn't currently connected.
+    @State private var showAllSides: Bool = false
+
+    /// Sides currently connected (Left, Right, Pro, …).
+    private var connectedSides: Set<JoyConSide> {
+        Set(joyConManager.devices.map { $0.side })
+    }
+
+    /// Returns true if this group should be visible given what's connected and
+    /// the "Show all" toggle. When no controller is connected we default to
+    /// showing everything so the editor isn't empty the first time a user opens it.
+    private func isGroupVisible(_ group: ButtonGroup) -> Bool {
+        if showAllSides || joyConManager.devices.isEmpty { return true }
+        return !group.sides.isDisjoint(with: connectedSides)
+    }
+
+    private var showLeftStick: Bool {
+        if showAllSides || joyConManager.devices.isEmpty { return true }
+        return !connectedSides.isDisjoint(with: [.left, .proController])
+    }
+
+    private var showRightStick: Bool {
+        if showAllSides || joyConManager.devices.isEmpty { return true }
+        return !connectedSides.isDisjoint(with: [.right, .proController])
+    }
 
     var body: some View {
         Form {
@@ -180,31 +221,61 @@ private struct ProfileDetailView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section {
+                HStack(spacing: 8) {
+                    Image(systemName: joyConManager.devices.isEmpty ? "exclamationmark.triangle.fill" : "dot.radiowaves.left.and.right")
+                        .foregroundStyle(joyConManager.devices.isEmpty ? .orange : .green)
+                    if joyConManager.devices.isEmpty {
+                        Text("No controllers connected — showing all sections so you can still edit.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Connected: \(connectedSides.map { $0.displayName }.sorted().joined(separator: ", "))")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("Show all", isOn: $showAllSides)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .help("Show bindings for Joy-Con sides that aren't currently connected.")
+                        .disabled(joyConManager.devices.isEmpty)
+                }
+            }
+
             ForEach(ButtonGroup.allCases, id: \.self) { group in
-                Section(group.rawValue) {
-                    ForEach(group.buttons) { button in
-                        ButtonBindingRow(
-                            button: button,
-                            action: Binding(
-                                get: { profile.buttonBindings[button] ?? .none },
-                                set: { new in
-                                    var copy = profile
-                                    if case .none = new {
-                                        copy.buttonBindings.removeValue(forKey: button)
-                                    } else {
-                                        copy.buttonBindings[button] = new
+                if isGroupVisible(group) {
+                    Section(group.rawValue) {
+                        ForEach(group.buttons) { button in
+                            ButtonBindingRow(
+                                button: button,
+                                action: Binding(
+                                    get: { profile.buttonBindings[button] ?? .none },
+                                    set: { new in
+                                        var copy = profile
+                                        if case .none = new {
+                                            copy.buttonBindings.removeValue(forKey: button)
+                                        } else {
+                                            copy.buttonBindings[button] = new
+                                        }
+                                        profile = copy
                                     }
-                                    profile = copy
-                                }
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
 
-            Section("Analog Sticks") {
-                StickBindingRow(label: "Left Stick", action: $profile.leftStick)
-                StickBindingRow(label: "Right Stick", action: $profile.rightStick)
+            if showLeftStick || showRightStick {
+                Section("Analog Sticks") {
+                    if showLeftStick {
+                        StickBindingRow(label: "Left Stick", action: $profile.leftStick)
+                    }
+                    if showRightStick {
+                        StickBindingRow(label: "Right Stick", action: $profile.rightStick)
+                    }
+                }
             }
 
             Section("Live Input Preview") {
@@ -553,8 +624,12 @@ private struct LiveInputView: View {
             }
             if let s = state {
                 HStack(alignment: .top, spacing: 20) {
-                    StickVisualizer(label: "Left", value: s.leftStick)
-                    StickVisualizer(label: "Right", value: s.rightStick)
+                    if device.side == .left || device.side == .proController || device.side == .unknown {
+                        StickVisualizer(label: "Left", value: s.leftStick)
+                    }
+                    if device.side == .right || device.side == .proController || device.side == .unknown {
+                        StickVisualizer(label: "Right", value: s.rightStick)
+                    }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Pressed").font(.caption.bold())
                         if s.pressedButtons.isEmpty {
