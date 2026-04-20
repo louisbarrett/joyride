@@ -58,6 +58,36 @@ cp "$ROOT_DIR/Sources/Joyride/Resources/Info.plist" "$CONTENTS/Info.plist"
 # in the popover footer — easy way to catch "running stale binary" bugs.
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_STAMP" "$CONTENTS/Info.plist" 2>/dev/null || true
 
+# App icon. We build AppIcon.icns on the fly from icon_1024.png at the repo
+# root using the system-provided `sips` and `iconutil` tools, so the repo only
+# needs to track the single master PNG rather than a binary .icns.
+ICON_MASTER="$ROOT_DIR/icon_1024.png"
+if [[ -f "$ICON_MASTER" ]]; then
+    echo "==> Generating AppIcon.icns from $(basename "$ICON_MASTER")"
+    ICONSET_DIR="$(mktemp -d -t joyride-iconset)/AppIcon.iconset"
+    mkdir -p "$ICONSET_DIR"
+
+    # macOS expects these 10 slots (5 logical sizes × @1x and @2x).
+    sips -z 16 16     "$ICON_MASTER" --out "$ICONSET_DIR/icon_16x16.png"      > /dev/null
+    sips -z 32 32     "$ICON_MASTER" --out "$ICONSET_DIR/icon_16x16@2x.png"   > /dev/null
+    sips -z 32 32     "$ICON_MASTER" --out "$ICONSET_DIR/icon_32x32.png"      > /dev/null
+    sips -z 64 64     "$ICON_MASTER" --out "$ICONSET_DIR/icon_32x32@2x.png"   > /dev/null
+    sips -z 128 128   "$ICON_MASTER" --out "$ICONSET_DIR/icon_128x128.png"    > /dev/null
+    sips -z 256 256   "$ICON_MASTER" --out "$ICONSET_DIR/icon_128x128@2x.png" > /dev/null
+    sips -z 256 256   "$ICON_MASTER" --out "$ICONSET_DIR/icon_256x256.png"    > /dev/null
+    sips -z 512 512   "$ICON_MASTER" --out "$ICONSET_DIR/icon_256x256@2x.png" > /dev/null
+    sips -z 512 512   "$ICON_MASTER" --out "$ICONSET_DIR/icon_512x512.png"    > /dev/null
+    cp "$ICON_MASTER" "$ICONSET_DIR/icon_512x512@2x.png"
+
+    iconutil --convert icns --output "$RESOURCES_DIR/AppIcon.icns" "$ICONSET_DIR"
+    rm -rf "$(dirname "$ICONSET_DIR")"
+else
+    echo "==> WARNING: $ICON_MASTER not found; app will use the default generic icon."
+    # Drop the icon keys so Finder doesn't cache a broken reference.
+    /usr/libexec/PlistBuddy -c "Delete :CFBundleIconFile" "$CONTENTS/Info.plist" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$CONTENTS/Info.plist" 2>/dev/null || true
+fi
+
 # Code signing.
 #
 # macOS's TCC subsystem (which gates Accessibility + Input Monitoring) identifies apps by

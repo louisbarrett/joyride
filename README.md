@@ -1,16 +1,14 @@
-# Joyride
+<p align="center">
+  <img src="icon_1024.png" alt="Joyride app icon" width="180" height="180" />
+</p>
 
-A native macOS menu bar utility that maps Nintendo Switch **Joy-Con** inputs to system-wide
-keyboard, mouse, and **mouse scroll** events — the feature JoyMapper doesn't have.
+<h1 align="center">Joyride</h1>
 
-## Why native Swift?
+<p align="center">
+  A native macOS menu bar utility that maps Nintendo Switch <strong>Joy-Con</strong> inputs
+  to system-wide keyboard, mouse, and <strong>mouse scroll</strong> events.
+</p>
 
-| Option | Verdict |
-|---|---|
-| **Swift + SwiftUI + IOKit HID + CGEvent** *(chosen)* | Direct first-class APIs for HID, event injection, and menu bar apps. Smallest binary, lowest overhead. |
-| Electron | Needs `node-hid` + `robotjs` native modules; `robotjs` can't do pixel-accurate `CGEventCreateScrollWheelEvent2` scrolls, which is the whole point. Ships 120 MB for a background utility. |
-| Go | Needs cgo to reach `IOHIDManager` and `CGEvent` — lots of bridging, no benefit. |
-| Rust / Tauri | Same cgo-equivalent pain plus an unwanted webview. |
 
 ## Building
 
