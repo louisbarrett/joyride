@@ -65,7 +65,11 @@ final class KeyboardInjector {
         }
         // Fn has no physical-key state change we can synthesize reliably; it
         // piggy-backs as a flag on the target key event only.
-        let targetFlags = modifiers.contains(.fn) ? running.union(.maskSecondaryFn) : running
+        let modifierFlags = modifiers.contains(.fn) ? running.union(.maskSecondaryFn) : running
+        // Arrows / function keys also carry intrinsic flags on real hardware;
+        // the symbolic-hotkey dispatcher (Mission Control, Spaces, etc.) matches
+        // on them, so we must add them at the CGEvent layer.
+        let targetFlags = modifierFlags.union(key.characteristicFlags)
         post(virtualKey: key.carbonKeyCode, keyDown: true, flags: targetFlags)
     }
 
@@ -74,7 +78,8 @@ final class KeyboardInjector {
         // release modifiers in reverse press order so the flag state ramps back
         // down the way a human's fingers would lift off the keyboard.
         var running: CGEventFlags = modifiers.cgFlags
-        post(virtualKey: key.carbonKeyCode, keyDown: false, flags: running)
+        let upFlags = running.union(key.characteristicFlags)
+        post(virtualKey: key.carbonKeyCode, keyDown: false, flags: upFlags)
 
         for entry in Self.modifierKeys.reversed() where modifiers.contains(entry.modifier) {
             running.remove(entry.flag)

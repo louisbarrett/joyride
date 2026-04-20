@@ -1,5 +1,6 @@
 import Foundation
 import Carbon.HIToolbox
+import CoreGraphics
 
 /// A catalog of virtual keycodes we support for key bindings. We use the stable `kVK_*`
 /// constants from Carbon.HIToolbox rather than a private table so names and codes stay
@@ -129,6 +130,37 @@ enum KeyCode: String, Codable, CaseIterable, Identifiable, Hashable {
         case .backslash: return "\\"
         case .grave: return "`"
         default: return rawValue.uppercased()
+        }
+    }
+
+    /// Flag bits macOS considers *intrinsic* to the key, independent of which
+    /// modifiers the user is holding. Real hardware events for these keys
+    /// always carry these bits set; CGEvent's keyboard constructor does not
+    /// populate them automatically, so we OR them in at post time.
+    ///
+    /// Why this matters: macOS's symbolic-hotkey dispatcher (the one that
+    /// owns Mission Control `⌃↑`, Application Windows `⌃↓`, Move-to-Space
+    /// `⌃←/→`, etc.) matches on keycode **plus** modifier mask **plus** these
+    /// bits. A synthesized `⌃↑` without `.maskNumericPad | .maskSecondaryFn`
+    /// looks to the dispatcher like an unknown keycode with Control held,
+    /// and silently falls through. Adding the bits makes the event
+    /// bit-identical to what a physical arrow press produces.
+    ///
+    ///   - Arrow keys: numericPad + function (historical: arrows lived on
+    ///     the numeric keypad, and are "function" keys in NSEvent terms).
+    ///   - PageUp/Down, Home/End, ForwardDelete: function only.
+    ///   - F1–F12: function only.
+    ///   - Everything else: no intrinsic flags.
+    var characteristicFlags: CGEventFlags {
+        switch self {
+        case .left, .right, .up, .down:
+            return [.maskNumericPad, .maskSecondaryFn]
+        case .pageUp, .pageDown, .home, .end, .forwardDelete:
+            return [.maskSecondaryFn]
+        case .f1, .f2, .f3, .f4, .f5, .f6, .f7, .f8, .f9, .f10, .f11, .f12:
+            return [.maskSecondaryFn]
+        default:
+            return []
         }
     }
 }
