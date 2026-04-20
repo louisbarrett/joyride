@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Flush any pending debounced profile writes before we tear down services —
+        // otherwise an edit made in the last ~300 ms before quit would be lost.
+        appState?.profileStore.flushPendingWrites()
         appState?.stopServices()
     }
 

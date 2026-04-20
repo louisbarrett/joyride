@@ -3,23 +3,102 @@ import IOKit
 import IOKit.hid
 import Combine
 
+/// Dedicated observable for high-frequency live input data (per-device state and report counts).
+///
+/// Joy-Cons produce 60+ reports per second per device. If this were published directly from
+/// `JoyConManager`, every SwiftUI view that observes the manager would rebuild its body at
+/// HID rate — which saturates the main thread once the Mapping Editor (with dozens of Pickers)
+/// is on screen. By keeping live state on a separate observable with coalesced flushes we:
+///   1. Let the mapping Form observe only `JoyConManager` (device add/remove, low frequency).
+///   2. Let the small "Live Input Preview" and device-row subviews observe `JoyConLiveInput`
+///      at a bounded ~30 Hz refresh rate.
+///
+/// All mutating entry points must be called on the main thread.
+final class JoyConLiveInput: ObservableObject {
+    @Published private(set) var states: [UUID: JoyConInputState] = [:]
+    @Published private(set) var reportCounts: [UUID: Int] = [:]
+
+    /// Pending (unpublished) state. These are the authoritative, always-fresh values; the
+    /// `@Published` counterparts above lag behind by up to `flushInterval` so SwiftUI
+    /// doesn't rebuild on every single HID report.
+    private var pendingStates: [UUID: JoyConInputState] = [:]
+    private var pendingCounts: [UUID: Int] = [:]
+    private var flushScheduled = false
+
+    /// 30 Hz UI refresh rate. Fast enough that stick-visualiser dots look smooth, slow enough
+    /// that the Form doesn't diff itself to death.
+    private let flushInterval: TimeInterval = 1.0 / 30.0
+
+    func record(deviceID: UUID, state: JoyConInputState, reportCount: Int) {
+        pendingStates[deviceID] = state
+        pendingCounts[deviceID] = reportCount
+        scheduleFlush()
+    }
+
+    func forget(deviceID: UUID) {
+        pendingStates.removeValue(forKey: deviceID)
+        pendingCounts.removeValue(forKey: deviceID)
+        // Publish removal immediately — device teardown is rare and users shouldn't see
+        // ghost rows for a device that just unpaired.
+        states.removeValue(forKey: deviceID)
+        reportCounts.removeValue(forKey: deviceID)
+    }
+
+    func reset() {
+        pendingStates.removeAll()
+        pendingCounts.removeAll()
+        states = [:]
+        reportCounts = [:]
+    }
+
+    /// Sum of all report counts. Computed from the pending (up-to-date) counts so UI
+    /// labels like "HID reports: 12345" tick up smoothly even between flushes.
+    var totalReports: Int {
+        pendingCounts.values.reduce(0, +)
+    }
+
+    private func scheduleFlush() {
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + flushInterval) { [weak self] in
+            guard let self = self else { return }
+            self.flushScheduled = false
+            // Only publish if anything actually changed — avoids spurious rebuilds of the
+            // live preview when a device is idle.
+            if self.states != self.pendingStates { self.states = self.pendingStates }
+            if self.reportCounts != self.pendingCounts { self.reportCounts = self.pendingCounts }
+        }
+    }
+}
+
 /// Owns the IOHIDManager and the set of live `JoyConDevice` instances. Publishes device
-/// add/remove events and latest input state to SwiftUI.
+/// add/remove events at low frequency and delegates high-frequency state to `liveInput`.
 final class JoyConManager: ObservableObject {
     @Published private(set) var devices: [JoyConDevice] = []
-    @Published private(set) var latestStates: [UUID: JoyConInputState] = [:]
     @Published private(set) var isRunning: Bool = false
     /// Running log of significant HID events, exposed to the UI for diagnostics.
     @Published private(set) var diagnostics: [String] = []
-    /// Count of input reports received per device — lets the UI show "silent" devices.
-    @Published private(set) var reportCounts: [UUID: Int] = [:]
+    /// Set of physical sides of currently-connected controllers. Only re-published when
+    /// the set actually changes, so views gating on "is a Right Joy-Con attached?" don't
+    /// re-render on unrelated manager updates.
+    @Published private(set) var connectedSides: Set<JoyConSide> = []
+
+    /// High-frequency live input data. Updated internally at HID rate but `@Published`
+    /// fields on this object are coalesced to ~30 Hz.
+    let liveInput = JoyConLiveInput()
 
     /// Invoked for every button press/release delta and every stick update, so the
     /// `MappingEngine` can react. Fires on the main queue.
     var onInputEvent: ((UUID, JoyConInputStateDelta) -> Void)?
 
+    /// Always-fresh (non-coalesced) per-device state. Read by the cursor-move timer so
+    /// mouse motion remains smooth at the timer's rate rather than stepping to the
+    /// liveInput flush interval. Reads and writes both happen on the main thread.
+    private(set) var currentStates: [UUID: JoyConInputState] = [:]
+
     private var hidManager: IOHIDManager?
     private var previousStates: [UUID: JoyConInputState] = [:]
+    private var totalReportCounts: [UUID: Int] = [:]
     private let diagnosticsLimit: Int = 50
 
     init() {}
@@ -96,9 +175,11 @@ final class JoyConManager: ObservableObject {
             device.stop()
         }
         devices.removeAll()
-        latestStates.removeAll()
+        currentStates.removeAll()
         previousStates.removeAll()
-        reportCounts.removeAll()
+        totalReportCounts.removeAll()
+        liveInput.reset()
+        updateConnectedSides()
 
         if let manager = hidManager {
             IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
@@ -183,7 +264,8 @@ final class JoyConManager: ObservableObject {
         }
 
         devices.append(device)
-        reportCounts[device.identifier] = 0
+        totalReportCounts[device.identifier] = 0
+        updateConnectedSides()
         device.start()
     }
 
@@ -199,9 +281,18 @@ final class JoyConManager: ObservableObject {
             devices[idx].stop()
             devices.remove(at: idx)
         }
-        latestStates.removeValue(forKey: id)
+        currentStates.removeValue(forKey: id)
         previousStates.removeValue(forKey: id)
-        reportCounts.removeValue(forKey: id)
+        totalReportCounts.removeValue(forKey: id)
+        liveInput.forget(deviceID: id)
+        updateConnectedSides()
+    }
+
+    private func updateConnectedSides() {
+        let sides = Set(devices.map { $0.side })
+        if sides != connectedSides {
+            connectedSides = sides
+        }
     }
 
     // MARK: - State diffing
@@ -210,14 +301,20 @@ final class JoyConManager: ObservableObject {
         let previous = previousStates[deviceID] ?? JoyConInputState()
         let delta = JoyConInputStateDelta(previous: previous, current: state)
         previousStates[deviceID] = state
-        latestStates[deviceID] = state
+        currentStates[deviceID] = state
 
-        let newCount = (reportCounts[deviceID] ?? 0) + 1
-        reportCounts[deviceID] = newCount
+        let newCount = (totalReportCounts[deviceID] ?? 0) + 1
+        totalReportCounts[deviceID] = newCount
         if newCount == 1, let device = devices.first(where: { $0.identifier == deviceID }) {
             log("First input report from \(device.side.displayName) — device is live.")
         }
 
+        // UI-facing (coalesced) update. Main-thread only; we're already on main here.
+        liveInput.record(deviceID: deviceID, state: state, reportCount: newCount)
+
+        // Engine callback fires on every actionable change (presses, releases, stick deltas).
+        // The engine reads `currentStates` directly for cursor motion, so it never suffers
+        // from the UI-side throttle.
         if delta.hasAnyChange {
             onInputEvent?(deviceID, delta)
         }

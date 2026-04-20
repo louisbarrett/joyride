@@ -178,42 +178,40 @@ private enum ButtonGroup: String, CaseIterable {
 
 private struct ProfileDetailView: View {
     @Binding var profile: MappingProfile
+    /// Observed ONLY for device add/remove and `connectedSides`, both of which are now
+    /// published at very low frequency by `JoyConManager`. The high-frequency live state
+    /// (stick values, report counts, pressed buttons) is isolated on `joyConManager.liveInput`
+    /// and only subscribed to by `LiveInputSection` below. This is what stops the mapping
+    /// Form from rebuilding at HID rate when a controller is connected.
     @ObservedObject var joyConManager: JoyConManager
 
     /// When true, we force-show every section regardless of what's paired. Lets
     /// users edit bindings for a Joy-Con that isn't currently connected.
     @State private var showAllSides: Bool = false
 
-    /// Sides currently connected (Left, Right, Pro, …).
-    private var connectedSides: Set<JoyConSide> {
-        Set(joyConManager.devices.map { $0.side })
-    }
-
     /// Returns true if this group should be visible given what's connected and
     /// the "Show all" toggle. When no controller is connected we default to
     /// showing everything so the editor isn't empty the first time a user opens it.
     private func isGroupVisible(_ group: ButtonGroup) -> Bool {
         if showAllSides || joyConManager.devices.isEmpty { return true }
-        return !group.sides.isDisjoint(with: connectedSides)
+        return !group.sides.isDisjoint(with: joyConManager.connectedSides)
     }
 
     private var showLeftStick: Bool {
         if showAllSides || joyConManager.devices.isEmpty { return true }
-        return !connectedSides.isDisjoint(with: [.left, .proController])
+        return !joyConManager.connectedSides.isDisjoint(with: [.left, .proController])
     }
 
     private var showRightStick: Bool {
         if showAllSides || joyConManager.devices.isEmpty { return true }
-        return !connectedSides.isDisjoint(with: [.right, .proController])
+        return !joyConManager.connectedSides.isDisjoint(with: [.right, .proController])
     }
 
     var body: some View {
         Form {
             Section {
                 HStack {
-                    TextField("Profile name", text: $profile.name)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.title3.bold())
+                    ProfileNameField(name: $profile.name)
                     Spacer()
                 }
                 Text("Bindings apply when this profile is active. Switch profiles from the menu bar popover.")
@@ -230,7 +228,7 @@ private struct ProfileDetailView: View {
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Connected: \(connectedSides.map { $0.displayName }.sorted().joined(separator: ", "))")
+                        Text("Connected: \(joyConManager.connectedSides.map { $0.displayName }.sorted().joined(separator: ", "))")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }
@@ -279,18 +277,62 @@ private struct ProfileDetailView: View {
             }
 
             Section("Live Input Preview") {
-                if joyConManager.devices.isEmpty {
-                    Text("No controllers connected — pair a Joy-Con to see live input here.")
-                        .foregroundStyle(.secondary)
-                        .font(.callout)
-                } else {
-                    ForEach(joyConManager.devices, id: \.identifier) { device in
-                        LiveInputView(device: device, state: joyConManager.latestStates[device.identifier])
-                    }
-                }
+                LiveInputSection(joyConManager: joyConManager, liveInput: joyConManager.liveInput)
             }
         }
         .formStyle(.grouped)
+    }
+}
+
+/// Text field for the profile name that commits edits locally first and only propagates
+/// the change to the binding on commit / end-editing. The previous implementation wrote
+/// through the binding on every keystroke, which triggered a full `@Published profiles`
+/// mutation, a debounced disk write, and a SwiftUI rebuild of the entire Form per
+/// character. On a slow machine this dropped keystrokes.
+private struct ProfileNameField: View {
+    @Binding var name: String
+    @State private var draft: String = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("Profile name", text: $draft)
+            .textFieldStyle(.roundedBorder)
+            .font(.title3.bold())
+            .focused($focused)
+            .onAppear { draft = name }
+            .onChange(of: name) { new in
+                // External update (profile switched, rename applied from alert): resync
+                // the local draft unless the user is mid-edit.
+                if !focused { draft = new }
+            }
+            .onSubmit {
+                if draft != name { name = draft }
+            }
+            .onChange(of: focused) { isFocused in
+                // Commit on blur — the common Mac pattern for text fields.
+                if !isFocused && draft != name { name = draft }
+            }
+    }
+}
+
+/// The part of the mapping editor that needs to reflect live controller input in real time.
+/// This is the *only* place in the Form subtree that observes the high-frequency
+/// `JoyConLiveInput` publisher, so it refreshes at ~30 Hz without dragging the rest of
+/// the Form through a rebuild.
+private struct LiveInputSection: View {
+    @ObservedObject var joyConManager: JoyConManager
+    @ObservedObject var liveInput: JoyConLiveInput
+
+    var body: some View {
+        if joyConManager.devices.isEmpty {
+            Text("No controllers connected — pair a Joy-Con to see live input here.")
+                .foregroundStyle(.secondary)
+                .font(.callout)
+        } else {
+            ForEach(joyConManager.devices, id: \.identifier) { device in
+                LiveInputView(device: device, state: liveInput.states[device.identifier])
+            }
+        }
     }
 }
 

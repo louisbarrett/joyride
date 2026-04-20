@@ -183,11 +183,7 @@ struct MenuBarContentView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                ForEach(joyConManager.devices, id: \.identifier) { device in
-                    DeviceRow(device: device,
-                              state: joyConManager.latestStates[device.identifier],
-                              reportCount: joyConManager.reportCounts[device.identifier] ?? 0)
-                }
+                DeviceRowsLiveList(joyConManager: joyConManager, liveInput: joyConManager.liveInput)
             }
         }
     }
@@ -205,24 +201,8 @@ struct MenuBarContentView: View {
                 .controlSize(.small)
                 .help("Synthesizes 10 scroll-down events. If nothing happens, Accessibility permission is missing.")
             }
-            let totalReports = joyConManager.reportCounts.values.reduce(0, +)
-            HStack(spacing: 10) {
-                PipelineStat(label: "HID reports", value: totalReports, tint: totalReports > 0 ? .green : .orange)
-                PipelineStat(label: "Button events", value: engine.buttonEventCount, tint: engine.buttonEventCount > 0 ? .green : .secondary)
-                PipelineStat(label: "Cursor moves", value: engine.cursorMoveCount, tint: engine.cursorMoveCount > 0 ? .green : .secondary)
-            }
-            if totalReports > 0 && engine.buttonEventCount == 0 && engine.cursorMoveCount == 0 {
-                Text("Reports arriving but no events yet — press a button or nudge a stick past the deadzone.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !app.hasAccessibilityPermission && (engine.buttonEventCount > 0 || engine.cursorMoveCount > 0) {
-                Text("Events are firing but Accessibility is not granted — CGEvent.post() is a silent no-op until you grant it.")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            PipelineStatsRow(liveInput: joyConManager.liveInput, engine: engine)
+            PipelineGuidance(app: app, liveInput: joyConManager.liveInput, engine: engine)
         }
     }
 
@@ -288,6 +268,63 @@ struct MenuBarContentView: View {
                     .foregroundStyle(tint)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Standalone view so that device rows rebuild at the `liveInput` flush rate (~30 Hz)
+    /// without dragging the entire popover body along with them.
+    private struct DeviceRowsLiveList: View {
+        @ObservedObject var joyConManager: JoyConManager
+        @ObservedObject var liveInput: JoyConLiveInput
+
+        var body: some View {
+            ForEach(joyConManager.devices, id: \.identifier) { device in
+                DeviceRow(device: device,
+                          state: liveInput.states[device.identifier],
+                          reportCount: liveInput.reportCounts[device.identifier] ?? 0)
+            }
+        }
+    }
+
+    /// Isolates the per-tick pipeline stats from the rest of the popover. Observes both
+    /// the throttled HID counts and the throttled cursor-move counter.
+    private struct PipelineStatsRow: View {
+        @ObservedObject var liveInput: JoyConLiveInput
+        @ObservedObject var engine: MappingEngine
+
+        var body: some View {
+            let totalReports = liveInput.reportCounts.values.reduce(0, +)
+            HStack(spacing: 10) {
+                PipelineStat(label: "HID reports", value: totalReports, tint: totalReports > 0 ? .green : .orange)
+                PipelineStat(label: "Button events", value: engine.buttonEventCount, tint: engine.buttonEventCount > 0 ? .green : .secondary)
+                PipelineStat(label: "Cursor moves", value: engine.cursorMoveCount, tint: engine.cursorMoveCount > 0 ? .green : .secondary)
+            }
+        }
+    }
+
+    /// Conditional guidance messages under the pipeline stats. Pulled into its own view
+    /// so its re-renders don't invalidate the stat row above.
+    private struct PipelineGuidance: View {
+        @ObservedObject var app: AppState
+        @ObservedObject var liveInput: JoyConLiveInput
+        @ObservedObject var engine: MappingEngine
+
+        var body: some View {
+            let totalReports = liveInput.reportCounts.values.reduce(0, +)
+            VStack(alignment: .leading, spacing: 4) {
+                if totalReports > 0 && engine.buttonEventCount == 0 && engine.cursorMoveCount == 0 {
+                    Text("Reports arriving but no events yet — press a button or nudge a stick past the deadzone.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !app.hasAccessibilityPermission && (engine.buttonEventCount > 0 || engine.cursorMoveCount > 0) {
+                    Text("Events are firing but Accessibility is not granted — CGEvent.post() is a silent no-op until you grant it.")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 

@@ -18,9 +18,18 @@ final class MappingEngine: ObservableObject {
     /// Currently-held mouse buttons (for drag-style bindings).
     private var heldMouseButtons: [UUID: [JoyConButton: MouseButton]] = [:]
 
-    /// High-frequency timer that moves the cursor based on stick deflection.
+    /// High-frequency timer that moves the cursor based on stick deflection. Lives on
+    /// the main queue because it reads `joyConManager.currentStates` which is mutated on
+    /// main by the HID callbacks — reading from any other thread would race.
     private var cursorTimer: DispatchSourceTimer?
     private var lastCursorTickTime: CFAbsoluteTime = 0
+
+    /// Dedicated queue for scroll-repeat timers. `CGEvent.post(tap:)` is thread-safe, so
+    /// moving these ticks off the main queue keeps hold-to-scroll ticking smoothly even
+    /// when SwiftUI is busy laying out the Mapping Editor. Before this change, a busy
+    /// main thread would coalesce the scroll repeats and the user would see long pauses
+    /// or missing scroll events ("input not being sent").
+    private let outputQueue = DispatchQueue(label: "com.lovejoy.engine.output", qos: .userInitiated)
 
     private var isEnabled: Bool = true
 
@@ -31,6 +40,14 @@ final class MappingEngine: ObservableObject {
     @Published private(set) var cursorMoveCount: Int = 0
     @Published private(set) var dispatchedActions: [String] = []
     private let dispatchedLogLimit = 30
+
+    /// Internal counter — incremented on every cursor move tick, but only flushed to the
+    /// `@Published` mirror above at `cursorPublishInterval`. Without this throttle the
+    /// menu-bar popover (which observes us) would rebuild at 120 Hz whenever a stick is
+    /// deflected.
+    private var internalCursorMoveCount: Int = 0
+    private var lastCursorPublishTime: CFAbsoluteTime = 0
+    private let cursorPublishInterval: TimeInterval = 0.25  // 4 Hz
 
     init(profileStore: ProfileStore, joyConManager: JoyConManager) {
         self.profileStore = profileStore
@@ -107,10 +124,9 @@ final class MappingEngine: ObservableObject {
         isEnabled = enabled
         if !enabled {
             // Release everything immediately when disabled.
-            for (deviceID, bindings) in heldKeys {
-                for (button, binding) in bindings {
+            for (_, bindings) in heldKeys {
+                for (_, binding) in bindings {
                     keyboard.keyUp(key: binding.key, modifiers: binding.modifiers)
-                    _ = button; _ = deviceID
                 }
             }
             heldKeys.removeAll()
@@ -183,13 +199,16 @@ final class MappingEngine: ObservableObject {
     private func startScrollTimer(deviceID: UUID, button: JoyConButton, config: ScrollAction) {
         stopScrollTimer(deviceID: deviceID, button: button)
 
-        let timer = DispatchSource.makeTimerSource(queue: .main)
+        // Ticking on a dedicated high-priority queue insulates scroll repeats from main-
+        // thread contention caused by SwiftUI layout or HID storms.
+        let timer = DispatchSource.makeTimerSource(queue: outputQueue)
         let interval = max(0.008, config.tickInterval)
-        timer.schedule(deadline: .now() + interval, repeating: interval)
+        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(2))
         let direction = config.direction
         let magnitude = config.pixelsPerTick
-        timer.setEventHandler { [weak self] in
-            self?.scroll.scrollPixels(direction: direction, magnitude: magnitude)
+        let scroller = scroll
+        timer.setEventHandler {
+            scroller.scrollPixels(direction: direction, magnitude: magnitude)
         }
         timer.resume()
         scrollTimers[deviceID, default: [:]][button] = timer
@@ -206,10 +225,12 @@ final class MappingEngine: ObservableObject {
 
     private func startCursorTimerIfNeeded() {
         guard cursorTimer == nil else { return }
+        // Must stay on main: reads `joyConManager.currentStates`, which is mutated on main
+        // by HID callbacks. Running the tick off-main would be a data race.
         let timer = DispatchSource.makeTimerSource(queue: .main)
         // ~120 Hz update — plenty smooth, very low CPU.
         let interval: TimeInterval = 1.0 / 120.0
-        timer.schedule(deadline: .now() + interval, repeating: interval)
+        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
             self?.tickCursor()
         }
@@ -220,11 +241,24 @@ final class MappingEngine: ObservableObject {
 
     private func tickCursor() {
         guard isEnabled else { return }
+
+        let profile = profileStore.activeProfile
+
+        // Fast-path: if neither stick is mapped to the cursor, do nothing. Avoids per-tick
+        // dict iteration and SIMD math when the active profile has no cursor binding.
+        let hasCursorBinding: Bool
+        switch (profile.leftStick, profile.rightStick) {
+        case (.mouseCursor, _), (_, .mouseCursor):
+            hasCursorBinding = true
+        default:
+            hasCursorBinding = false
+        }
+        if !hasCursorBinding { return }
+
         let now = CFAbsoluteTimeGetCurrent()
         let dt = max(0.001, min(0.05, now - lastCursorTickTime))
         lastCursorTickTime = now
 
-        let profile = profileStore.activeProfile
         var totalDX: Double = 0
         var totalDY: Double = 0
 
@@ -233,8 +267,12 @@ final class MappingEngine: ObservableObject {
         // often saturate to extreme values (e.g. (-1, -1)), which used to bleed
         // into cursor motion. We now pick the stick that actually exists on each
         // device based on its side.
+        //
+        // `currentStates` is the always-fresh (non-coalesced) mirror maintained by
+        // JoyConManager — reading the published throttled copy here would cause
+        // visible cursor stepping at the flush rate.
         for device in joyConManager.devices {
-            guard let state = joyConManager.latestStates[device.identifier] else { continue }
+            guard let state = joyConManager.currentStates[device.identifier] else { continue }
             switch device.side {
             case .left:
                 let (dx, dy) = cursorDelta(stick: state.leftStick, config: profile.leftStick, dt: dt)
@@ -254,7 +292,13 @@ final class MappingEngine: ObservableObject {
 
         if totalDX != 0 || totalDY != 0 {
             mouse.moveCursor(byDX: CGFloat(totalDX), dy: CGFloat(totalDY))
-            cursorMoveCount += 1
+            internalCursorMoveCount += 1
+            // Publish at most every `cursorPublishInterval` so we don't rebuild the
+            // popover's pipeline stats at 120 Hz.
+            if now - lastCursorPublishTime >= cursorPublishInterval {
+                lastCursorPublishTime = now
+                cursorMoveCount = internalCursorMoveCount
+            }
         }
     }
 
