@@ -35,17 +35,59 @@ struct StickCalibration: Codable, Equatable, Hashable {
     }
 }
 
-/// Paired calibration for both sticks on a controller. Stored per-device so a
-/// Left Joy-Con and a Right Joy-Con get distinct calibration even though they
+/// Paired calibration + orientation for a controller. Stored per-device so a
+/// Left Joy-Con and a Right Joy-Con get distinct state even though they
 /// only each have one physical stick — the unused side sticks to the default.
+///
+/// `orientation` lives here (rather than in its own store) because it's the
+/// same shape of per-device preference: keyed by serial number, with a
+/// per-side fallback, and persisted to the same JSON blob. Making two parallel
+/// stores for "things I've configured about this controller" would duplicate
+/// the debouncing / loading / writing plumbing without benefit.
 struct DeviceCalibration: Codable, Equatable, Hashable {
     var leftStick: StickCalibration
     var rightStick: StickCalibration
+    /// How the user is holding this controller. Applied by `JoyConDevice` to
+    /// the parsed input state before the engine sees it. Default is vertical
+    /// (the native pose) so pre-existing saved calibration files come back as
+    /// vertical without needing a migration step.
+    var orientation: DeviceOrientation
 
     static let `default` = DeviceCalibration(
         leftStick: .defaultLeft,
-        rightStick: .defaultRight
+        rightStick: .defaultRight,
+        orientation: .vertical
     )
+
+    // MARK: Codable
+
+    // `orientation` was added after v0 shipped, so its absence in older
+    // calibration.json files decodes as `.vertical`. We also handle the
+    // inverse (an orientation field present but a garbage value) by falling
+    // back to `.vertical` rather than failing the whole decode.
+    private enum CodingKeys: String, CodingKey {
+        case leftStick, rightStick, orientation
+    }
+
+    init(leftStick: StickCalibration, rightStick: StickCalibration, orientation: DeviceOrientation) {
+        self.leftStick = leftStick
+        self.rightStick = rightStick
+        self.orientation = orientation
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.leftStick = try c.decode(StickCalibration.self, forKey: .leftStick)
+        self.rightStick = try c.decode(StickCalibration.self, forKey: .rightStick)
+        self.orientation = (try? c.decode(DeviceOrientation.self, forKey: .orientation)) ?? .vertical
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(leftStick, forKey: .leftStick)
+        try c.encode(rightStick, forKey: .rightStick)
+        try c.encode(orientation, forKey: .orientation)
+    }
 }
 
 /// Persists user-captured stick calibration to

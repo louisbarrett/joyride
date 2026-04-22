@@ -39,6 +39,40 @@ enum JoyConProtocol {
     }
 }
 
+/// How the user is physically holding a single Joy-Con. The HID layout is
+/// identical in every orientation (the firmware reports physical button bits,
+/// not semantic ones), so the rotation has to be applied in software before
+/// mapping actions to input.
+///
+/// `vertical` — native orientation, attached-to-Switch pose. Stick and dpad
+/// read "as labeled": push up, get up.
+///
+/// `horizontal` — sideways "play-alone" pose with the SL/SR rail on top, the
+/// way a single Joy-Con is used for local multiplayer on the Switch. Two
+/// adjustments happen in this mode:
+///   1. The stick vector is rotated 90° so pushing the stick "up" (from the
+///      user's rotated point of view) moves the cursor up — a Left Joy-Con
+///      is held rotated counter-clockwise from native, a Right Joy-Con
+///      clockwise, so each side gets its own rotation.
+///   2. The side-rail buttons (`SL`/`SR`) that naturally fall under the user's
+///      index fingers in this pose are aliased to the rear triggers (`L`/`ZL`
+///      or `R`/`ZR`) so existing "trigger" bindings keep firing without the
+///      user having to rebind.
+///
+/// Pro Controllers and unknown form factors always stay `vertical` — they
+/// don't have a sideways pose.
+enum DeviceOrientation: String, Codable, CaseIterable, Hashable {
+    case vertical
+    case horizontal
+
+    var displayName: String {
+        switch self {
+        case .vertical: return "Vertical"
+        case .horizontal: return "Horizontal (Sideways)"
+        }
+    }
+}
+
 /// Identifies a physical Joy-Con form factor.
 enum JoyConSide: String, Codable, CaseIterable, Hashable {
     case left
@@ -61,6 +95,15 @@ enum JoyConSide: String, Codable, CaseIterable, Hashable {
         case .right: return "Right Joy-Con"
         case .proController: return "Pro Controller"
         case .unknown: return "Unknown Controller"
+        }
+    }
+
+    /// A sideways "play-alone" pose only makes sense for a single Joy-Con.
+    /// Pro Controllers and unknown devices always stay vertical.
+    var supportsHorizontalOrientation: Bool {
+        switch self {
+        case .left, .right: return true
+        case .proController, .unknown: return false
         }
     }
 }

@@ -4,14 +4,14 @@ import Foundation
 enum ButtonAction: Codable, Hashable, Identifiable {
     case none
     case key(KeyBinding)
-    case mouseClick(MouseButton)
+    case mouseClick(MouseClickAction)
     case scroll(ScrollAction)
 
     var id: String {
         switch self {
         case .none: return "none"
         case .key(let b): return "key:\(b.id)"
-        case .mouseClick(let m): return "mouse:\(m.rawValue)"
+        case .mouseClick(let a): return "mouse:\(a.id)"
         case .scroll(let s): return "scroll:\(s.id)"
         }
     }
@@ -20,7 +20,7 @@ enum ButtonAction: Codable, Hashable, Identifiable {
         switch self {
         case .none: return "Unassigned"
         case .key(let b): return b.displayName
-        case .mouseClick(let m): return m.displayName
+        case .mouseClick(let a): return a.displayName
         case .scroll(let s): return s.displayName
         }
     }
@@ -38,7 +38,16 @@ enum ButtonAction: Codable, Hashable, Identifiable {
         case .key:
             self = .key(try c.decode(KeyBinding.self, forKey: .value))
         case .mouseClick:
-            self = .mouseClick(try c.decode(MouseButton.self, forKey: .value))
+            // Current format stores a `MouseClickAction { button, click_count }`.
+            // Legacy profiles (pre-double-click) stored a bare `MouseButton` string
+            // ("left" / "right" / "middle"); we decode those as a single click so
+            // previously-saved profiles keep working without a migration step.
+            if let action = try? c.decode(MouseClickAction.self, forKey: .value) {
+                self = .mouseClick(action)
+            } else {
+                let legacy = try c.decode(MouseButton.self, forKey: .value)
+                self = .mouseClick(MouseClickAction(button: legacy, clickCount: 1))
+            }
         case .scroll:
             self = .scroll(try c.decode(ScrollAction.self, forKey: .value))
         }
@@ -52,13 +61,61 @@ enum ButtonAction: Codable, Hashable, Identifiable {
         case .key(let b):
             try c.encode(ActionType.key, forKey: .type)
             try c.encode(b, forKey: .value)
-        case .mouseClick(let m):
+        case .mouseClick(let a):
             try c.encode(ActionType.mouseClick, forKey: .type)
-            try c.encode(m, forKey: .value)
+            try c.encode(a, forKey: .value)
         case .scroll(let s):
             try c.encode(ActionType.scroll, forKey: .type)
             try c.encode(s, forKey: .value)
         }
+    }
+}
+
+/// A mouse-click binding: which button, and how many clicks to emit per button press.
+///
+/// `clickCount` 1 behaves like the original single-click binding — mouse down on press,
+/// mouse up on release, so the user can drag by holding the Joy-Con button.
+///
+/// `clickCount` 2 and 3 emit a full double- or triple-click burst on press (with the
+/// proper `kCGMouseEventClickState` field set, which is what macOS actually looks at
+/// to recognize double-click gestures like "select word" or "open folder in Finder").
+/// Holding the Joy-Con button doesn't "hold" a double click, since that has no OS-level
+/// meaning — the burst fires once per press.
+struct MouseClickAction: Codable, Hashable, Identifiable {
+    var button: MouseButton
+    /// 1 = single click, 2 = double, 3 = triple. Clamped on init.
+    var clickCount: Int
+
+    init(button: MouseButton, clickCount: Int = 1) {
+        self.button = button
+        self.clickCount = max(1, min(3, clickCount))
+    }
+
+    var id: String { "\(button.rawValue)-\(clickCount)" }
+
+    var displayName: String {
+        switch clickCount {
+        case 2: return "Double \(button.displayName)"
+        case 3: return "Triple \(button.displayName)"
+        default: return button.displayName
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case button, clickCount = "click_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let button = try c.decode(MouseButton.self, forKey: .button)
+        let count = (try? c.decode(Int.self, forKey: .clickCount)) ?? 1
+        self.init(button: button, clickCount: count)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(button, forKey: .button)
+        try c.encode(clickCount, forKey: .clickCount)
     }
 }
 
@@ -234,8 +291,8 @@ extension MappingProfile {
                 .b: .scroll(ScrollAction(direction: .up)),
                 .x: .scroll(ScrollAction(direction: .up, pixelsPerTick: 40, tickInterval: 0.02)),
                 .y: .scroll(ScrollAction(direction: .down, pixelsPerTick: 40, tickInterval: 0.02)),
-                .r: .mouseClick(.left),
-                .zr: .mouseClick(.right),
+                .r: .mouseClick(MouseClickAction(button: .left)),
+                .zr: .mouseClick(MouseClickAction(button: .right)),
                 .plus: .key(KeyBinding(key: .space, modifiers: [])),
                 .home: .key(KeyBinding(key: .escape, modifiers: [])),
                 // Left Joy-Con defaults in case only a Left is connected
@@ -243,8 +300,8 @@ extension MappingProfile {
                 .dpadDown: .scroll(ScrollAction(direction: .down)),
                 .dpadLeft: .scroll(ScrollAction(direction: .left)),
                 .dpadRight: .scroll(ScrollAction(direction: .right)),
-                .l: .mouseClick(.left),
-                .zl: .mouseClick(.right),
+                .l: .mouseClick(MouseClickAction(button: .left)),
+                .zl: .mouseClick(MouseClickAction(button: .right)),
                 .minus: .key(KeyBinding(key: .space, modifiers: [])),
                 .capture: .key(KeyBinding(key: .escape, modifiers: []))
             ],
@@ -262,15 +319,15 @@ extension MappingProfile {
                 .b: .key(KeyBinding(key: .returnKey, modifiers: [])),
                 .x: .key(KeyBinding(key: .e, modifiers: [])),
                 .y: .key(KeyBinding(key: .q, modifiers: [])),
-                .r: .mouseClick(.left),
-                .zr: .mouseClick(.right),
+                .r: .mouseClick(MouseClickAction(button: .left)),
+                .zr: .mouseClick(MouseClickAction(button: .right)),
                 .plus: .key(KeyBinding(key: .escape, modifiers: [])),
                 .dpadUp: .key(KeyBinding(key: .w, modifiers: [])),
                 .dpadDown: .key(KeyBinding(key: .s, modifiers: [])),
                 .dpadLeft: .key(KeyBinding(key: .a, modifiers: [])),
                 .dpadRight: .key(KeyBinding(key: .d, modifiers: [])),
-                .l: .mouseClick(.left),
-                .zl: .mouseClick(.right),
+                .l: .mouseClick(MouseClickAction(button: .left)),
+                .zl: .mouseClick(MouseClickAction(button: .right)),
                 .minus: .key(KeyBinding(key: .tab, modifiers: []))
             ],
             rightStick: .mouseCursor(MouseCursorStickConfig())

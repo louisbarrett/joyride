@@ -15,7 +15,8 @@ final class MappingEngine: ObservableObject {
     private var scrollTimers: [UUID: [JoyConButton: DispatchSourceTimer]] = [:]
     /// Currently-held keys, so we emit keyUp cleanly when the button releases.
     private var heldKeys: [UUID: [JoyConButton: KeyBinding]] = [:]
-    /// Currently-held mouse buttons (for drag-style bindings).
+    /// Currently-held mouse buttons (for drag-style bindings). Only populated when
+    /// `clickCount == 1` — multi-click bursts are edge-triggered and don't get held.
     private var heldMouseButtons: [UUID: [JoyConButton: MouseButton]] = [:]
 
     /// High-frequency timer that moves the cursor based on stick deflection. Lives on
@@ -166,8 +167,16 @@ final class MappingEngine: ObservableObject {
             keyboard.keyDown(key: binding.key, modifiers: binding.modifiers)
             heldKeys[deviceID, default: [:]][button] = binding
         case .mouseClick(let m):
-            mouse.mouseDown(m)
-            heldMouseButtons[deviceID, default: [:]][button] = m
+            if m.clickCount <= 1 {
+                // Single click: press/release semantics so the user can drag.
+                mouse.mouseDown(m.button)
+                heldMouseButtons[deviceID, default: [:]][button] = m.button
+            } else {
+                // Double / triple click: emit the burst atomically on press. Holding
+                // the Joy-Con button doesn't extend a double click — there is no such
+                // OS gesture — so we intentionally don't record this in heldMouseButtons.
+                mouse.multiClick(m.button, clickCount: m.clickCount)
+            }
         case .scroll(let cfg):
             scroll.scrollPixels(direction: cfg.direction, magnitude: cfg.pixelsPerTick)
             if cfg.repeatWhileHeld {
@@ -185,6 +194,8 @@ final class MappingEngine: ObservableObject {
             keyboard.keyUp(key: held.key, modifiers: held.modifiers)
             heldKeys[deviceID]?[button] = nil
         case .mouseClick:
+            // Only single-click bindings register a held button; multi-click bursts
+            // fired on press and already completed their own up events.
             if let m = heldMouseButtons[deviceID]?[button] {
                 mouse.mouseUp(m)
                 heldMouseButtons[deviceID]?[button] = nil

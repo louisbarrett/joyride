@@ -276,6 +276,21 @@ final class JoyConManager: ObservableObject {
             let hex = bytes.map { String(format: "%02x", $0) }.joined(separator: " ")
             self.log("\(device.side.displayName) raw 0x\(String(reportID, radix: 16)) [\(bytes.count)B]: \(hex)")
         }
+        device.onReportIDFirstSeen = { [weak self, weak device] reportID, length in
+            guard let self = self, let device = device else { return }
+            let label: String
+            switch reportID {
+            case JoyConProtocol.InputReportID.standardFull.rawValue:
+                label = "0x30 standard-full"
+            case JoyConProtocol.InputReportID.subcommandReply.rawValue:
+                label = "0x21 subcommand-reply"
+            case JoyConProtocol.InputReportID.simpleHID.rawValue:
+                label = "0x3F simple-HID (analog stick WILL NOT work in this mode)"
+            default:
+                label = "0x\(String(reportID, radix: 16))"
+            }
+            self.log("\(device.side.displayName): first \(label) report (\(length) bytes)")
+        }
 
         devices.append(device)
         totalReportCounts[device.identifier] = 0
@@ -386,6 +401,27 @@ final class JoyConManager: ObservableObject {
         calibrationStore.reset(serial: device.serialNumber, side: device.side)
         device.applyCalibration(.default)
         log("Reset calibration for \(device.side.displayName).")
+        onCalibrationChanged?(deviceID)
+    }
+
+    /// Update the orientation (vertical / horizontal) for a single device and
+    /// persist it. A no-op on form factors that don't have a sideways pose.
+    ///
+    /// The new orientation applies to the very next HID report — the user sees
+    /// the cursor-motion fix instantly without needing to reconnect the
+    /// controller. Persistence piggy-backs on `CalibrationStore`, so the
+    /// setting survives relaunches and is keyed by serial like calibration.
+    func setOrientation(deviceID: UUID, orientation: DeviceOrientation) {
+        guard let device = devices.first(where: { $0.identifier == deviceID }) else { return }
+        guard device.side.supportsHorizontalOrientation || orientation == .vertical else { return }
+
+        device.setOrientation(orientation)
+
+        var cal = device.currentCalibration
+        cal.orientation = orientation
+        calibrationStore.save(cal, serial: device.serialNumber, side: device.side)
+
+        log("Orientation for \(device.side.displayName) → \(orientation.displayName)")
         onCalibrationChanged?(deviceID)
     }
 }

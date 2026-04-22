@@ -63,6 +63,41 @@ final class MouseInjector {
         mouseUp(button)
     }
 
+    /// Emit a multi-click burst (e.g. double- or triple-click) at the current cursor
+    /// position. macOS distinguishes a "real" double click from two rapid single clicks
+    /// by looking at the `kCGMouseEventClickState` field on each event — so for the
+    /// nth click in a burst we set the click state to `n`. Without this, apps like
+    /// Finder will not recognize the gesture as "open folder" and text fields will
+    /// not select a word.
+    ///
+    /// `clickCount` is clamped to 1...3. A count of 1 is equivalent to `click(_:)`.
+    func multiClick(_ button: MouseButton, clickCount: Int) {
+        let count = max(1, min(3, clickCount))
+        let position = currentCursorPosition()
+        for i in 1...count {
+            if let down = CGEvent(
+                mouseEventSource: source,
+                mouseType: button.downEventType,
+                mouseCursorPosition: position,
+                mouseButton: button.cgMouseButton
+            ) {
+                down.setIntegerValueField(.mouseEventClickState, value: Int64(i))
+                down.post(tap: .cghidEventTap)
+            }
+            if let up = CGEvent(
+                mouseEventSource: source,
+                mouseType: button.upEventType,
+                mouseCursorPosition: position,
+                mouseButton: button.cgMouseButton
+            ) {
+                up.setIntegerValueField(.mouseEventClickState, value: Int64(i))
+                up.post(tap: .cghidEventTap)
+            }
+        }
+        // A burst doesn't leave a button held; make sure we don't leak drag state.
+        heldButtons.remove(button)
+    }
+
     func mouseDown(_ button: MouseButton) {
         let position = currentCursorPosition()
         let event = CGEvent(

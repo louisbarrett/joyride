@@ -467,17 +467,40 @@ private struct MouseActionEditor: View {
     @Binding var action: ButtonAction
 
     var body: some View {
-        if case .mouseClick(let m) = action {
-            Picker("Button", selection: Binding<MouseButton>(
-                get: { m },
-                set: { action = .mouseClick($0) }
-            )) {
-                ForEach(MouseButton.allCases, id: \.self) { b in
-                    Text(b.displayName).tag(b)
+        if case .mouseClick(let click) = action {
+            HStack(spacing: 10) {
+                Picker("Button", selection: Binding<MouseButton>(
+                    get: { click.button },
+                    set: { new in
+                        action = .mouseClick(MouseClickAction(button: new, clickCount: click.clickCount))
+                    }
+                )) {
+                    ForEach(MouseButton.allCases, id: \.self) { b in
+                        Text(b.displayName).tag(b)
+                    }
                 }
+                .labelsHidden()
+                .frame(width: 160)
+
+                // Segmented "click count" selector. We expose 1/2/3 rather than just
+                // a "double click" checkbox because triple-click has real uses on
+                // macOS (select-paragraph in text views) and the underlying CGEvent
+                // API supports all three uniformly via kCGMouseEventClickState.
+                Picker("Clicks", selection: Binding<Int>(
+                    get: { click.clickCount },
+                    set: { new in
+                        action = .mouseClick(MouseClickAction(button: click.button, clickCount: new))
+                    }
+                )) {
+                    Text("Single").tag(1)
+                    Text("Double").tag(2)
+                    Text("Triple").tag(3)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+                .help("Double-click emits a real macOS double-click gesture (e.g. select word, open folder in Finder). Single click preserves click-and-hold for dragging.")
             }
-            .labelsHidden()
-            .frame(width: 160)
         }
     }
 }
@@ -775,6 +798,10 @@ private struct CalibrationControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if device.side.supportsHorizontalOrientation {
+                orientationRow
+            }
+
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("Calibration")
                     .font(.caption.bold())
@@ -813,6 +840,35 @@ private struct CalibrationControls: View {
         .onDisappear {
             samplingTimer?.invalidate()
             samplingTimer = nil
+        }
+    }
+
+    /// Orientation picker shown above the calibration row. Switching to
+    /// "Horizontal" rotates the stick vector 90° (so pushing "up" from the
+    /// user's rotated point of view moves the cursor up) and aliases the
+    /// `SL` / `SR` rail buttons to the `L` / `ZL` (or `R` / `ZR`) bindings
+    /// so that "trigger" mappings keep firing under the index fingers.
+    @ViewBuilder
+    private var orientationRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("Orientation")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            Picker("Orientation", selection: Binding<DeviceOrientation>(
+                get: { device.orientation },
+                set: { new in joyConManager.setOrientation(deviceID: device.identifier, orientation: new) }
+            )) {
+                ForEach(DeviceOrientation.allCases, id: \.self) { o in
+                    Text(o.displayName).tag(o)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(width: 280)
+            .help("Pick 'Horizontal' when you're holding the Joy-Con sideways (rail on top, SL/SR under your index fingers). Rotates the stick 90° and aliases SL/SR to the L/ZL or R/ZR trigger bindings so existing profiles keep working.")
+
+            Spacer()
         }
     }
 
@@ -1283,7 +1339,7 @@ private extension ButtonAction {
             return .key(KeyBinding(key: .space, modifiers: []))
         case 2:
             if case .mouseClick(let m) = previous { return .mouseClick(m) }
-            return .mouseClick(.left)
+            return .mouseClick(MouseClickAction(button: .left))
         case 3:
             if case .scroll(let s) = previous { return .scroll(s) }
             return .scroll(ScrollAction(direction: .down))

@@ -20,6 +20,11 @@ final class JoyConDevice {
 
     private let device: IOHIDDevice
     private var parser: HIDReportParser
+    /// How the user is holding this Joy-Con. Applied to the parsed input state
+    /// before the rest of the app sees it — see `applyOrientation(to:)`. Mutated
+    /// on the main thread, read from the HID callback which also runs on main,
+    /// so no synchronization is needed beyond that invariant.
+    private var orientationState: DeviceOrientation
     private var inputReportBuffer: UnsafeMutablePointer<UInt8>
     private let inputReportBufferSize = JoyConProtocol.maxInputReportSize
     private var packetCounter: UInt8 = 0
@@ -34,6 +39,18 @@ final class JoyConDevice {
     /// its shared diagnostics log (which is already surfaced in the UI).
     var onRawReport: ((UInt8, [UInt8]) -> Void)?
 
+    /// Per-reportID running count of how many reports of each type we've
+    /// ever seen on this device. Used to log a one-time breadcrumb the first
+    /// time an unexpected report-ID shows up (e.g. if the device flips from
+    /// 0x30 to 0x3F behind our back), without ever sending subcommands in
+    /// response — writing to the device is the thing that seems to upset the
+    /// BT link, so this diagnostic stays strictly read-only.
+    private var reportIDCounts: [UInt8: Int] = [:]
+    /// Callback invoked the first time each distinct report-ID is observed.
+    /// Hook the diagnostics log into this to track mode changes without
+    /// flooding it on every frame.
+    var onReportIDFirstSeen: ((UInt8, Int) -> Void)?
+
     init(device: IOHIDDevice, initialCalibration: DeviceCalibration = .default) {
         self.device = device
         self.identifier = UUID()
@@ -45,12 +62,19 @@ final class JoyConDevice {
         self.productID = productID
         self.vendorID = vendorID
         self.serialNumber = serial
-        self.side = JoyConSide(productID: productID)
+        let side = JoyConSide(productID: productID)
+        self.side = side
         self.parser = HIDReportParser(
-            side: JoyConSide(productID: productID),
+            side: side,
             leftStickCalibration: initialCalibration.leftStick,
             rightStickCalibration: initialCalibration.rightStick
         )
+        // Only honour persisted horizontal orientation on form factors that
+        // physically have a sideways pose — a stray .horizontal on a Pro
+        // Controller would silently misrotate both sticks for no benefit.
+        self.orientationState = side.supportsHorizontalOrientation
+            ? initialCalibration.orientation
+            : .vertical
         self.inputReportBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: inputReportBufferSize)
         self.inputReportBuffer.initialize(repeating: 0, count: inputReportBufferSize)
     }
@@ -60,11 +84,28 @@ final class JoyConDevice {
     func applyCalibration(_ calibration: DeviceCalibration) {
         parser.leftStickCalibration = calibration.leftStick
         parser.rightStickCalibration = calibration.rightStick
+        orientationState = side.supportsHorizontalOrientation
+            ? calibration.orientation
+            : .vertical
     }
 
-    /// Snapshot of the current calibration, for UI display.
+    /// Change just the orientation without touching stick calibration. Same
+    /// threading rules as `applyCalibration`.
+    func setOrientation(_ orientation: DeviceOrientation) {
+        guard side.supportsHorizontalOrientation || orientation == .vertical else { return }
+        orientationState = orientation
+    }
+
+    /// Current orientation, for UI display.
+    var orientation: DeviceOrientation { orientationState }
+
+    /// Snapshot of the current calibration + orientation, for UI display and persistence.
     var currentCalibration: DeviceCalibration {
-        DeviceCalibration(leftStick: parser.leftStickCalibration, rightStick: parser.rightStickCalibration)
+        DeviceCalibration(
+            leftStick: parser.leftStickCalibration,
+            rightStick: parser.rightStickCalibration,
+            orientation: orientationState
+        )
     }
 
     deinit {
@@ -196,7 +237,26 @@ final class JoyConDevice {
             }
         }
 
-        guard let state = parser.parse(reportID: reportID, data: report, length: length) else { return }
+        // Pure observer: bump the per-reportID counter and, the first time a
+        // given reportID is ever seen on this device, ping the diagnostics
+        // log. No subcommands get sent from here — writing to the device
+        // while it's mid-negotiation with the OS is what previously caused
+        // the rumble-and-drop loop.
+        let existing = reportIDCounts[reportID] ?? 0
+        let nextCount = existing + 1
+        reportIDCounts[reportID] = nextCount
+        if existing == 0 {
+            let cb = onReportIDFirstSeen
+            let capturedID = reportID
+            if Thread.isMainThread {
+                cb?(capturedID, Int(length))
+            } else {
+                DispatchQueue.main.async { cb?(capturedID, Int(length)) }
+            }
+        }
+
+        guard let parsed = parser.parse(reportID: reportID, data: report, length: length) else { return }
+        let state = applyOrientation(to: parsed)
         // Callback runs on whatever runloop IOHIDManager was scheduled on. We schedule on main,
         // so we're already on main here — but guard anyway for safety.
         if Thread.isMainThread {
@@ -206,6 +266,58 @@ final class JoyConDevice {
                 self?.onStateUpdate?(state)
             }
         }
+    }
+
+    /// Re-expresses a parsed `JoyConInputState` from the controller's native
+    /// frame into the user's frame based on how the Joy-Con is physically held.
+    ///
+    /// Two separate transforms happen in `.horizontal`:
+    ///
+    /// **Stick rotation.** The HID stick fields report in the controller's own
+    /// coordinate system; when the user rotates the controller 90° to hold it
+    /// sideways, the stick's axes rotate with it. The app's cursor-mapping math
+    /// assumes a canonical "stick up means cursor up" convention, so we rotate
+    /// the vector back into that convention here. The rotation direction
+    /// depends on which side of the pair is connected — the Switch's sideways
+    /// pose has Left Joy-Cons rotated CCW and Right Joy-Cons CW, which works
+    /// out to opposite matrix rotations on the reported vector.
+    ///
+    /// **Side-rail trigger aliasing.** When held sideways, the Joy-Con's
+    /// rear triggers (`L` / `ZL` / `R` / `ZR`) are awkward to reach, while the
+    /// rail buttons (`SL` / `SR`) naturally sit under the user's index fingers.
+    /// Rather than force the user to rebind, we insert a "virtual" press of
+    /// the corresponding rear trigger whenever a rail button is held. The
+    /// original `slLeft` / `srLeft` / `slRight` / `srRight` stay in the set,
+    /// so explicit bindings on them keep working alongside the aliases.
+    private func applyOrientation(to state: JoyConInputState) -> JoyConInputState {
+        guard orientationState == .horizontal else { return state }
+
+        var out = state
+
+        switch side {
+        case .left:
+            // Left Joy-Con sideways = controller rotated 90° CCW in the user's
+            // frame. Transform stick reading (x, y) → (-y, x) to undo the
+            // rotation so "user-up" = stick-pushed-up.
+            let v = state.leftStick
+            out.leftStick = SIMD2<Double>(-v.y, v.x)
+            if state.pressedButtons.contains(.slLeft)  { out.pressedButtons.insert(.l) }
+            if state.pressedButtons.contains(.srLeft)  { out.pressedButtons.insert(.zl) }
+        case .right:
+            // Right Joy-Con sideways = rotated 90° CW in user's frame.
+            // Transform stick reading (x, y) → (y, -x).
+            let v = state.rightStick
+            out.rightStick = SIMD2<Double>(v.y, -v.x)
+            if state.pressedButtons.contains(.slRight) { out.pressedButtons.insert(.zr) }
+            if state.pressedButtons.contains(.srRight) { out.pressedButtons.insert(.r)  }
+        case .proController, .unknown:
+            // No canonical sideways pose — orientation is ignored at init time
+            // for these, so we should never actually reach here. Left as a
+            // no-op for safety.
+            break
+        }
+
+        return out
     }
 
     private func handleRemoval() {
